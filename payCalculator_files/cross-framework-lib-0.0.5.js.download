@@ -1,0 +1,217 @@
+class l {
+  constructor() {
+    this.enrollmentStatuses = {
+      waitlisted: -4,
+      partially_attended: -3,
+      cancelled: -2,
+      no_show: -1,
+      not_started: 1,
+      in_progress: 2,
+      completed: 3,
+      passed: 4,
+      failed: 5,
+      pending_review: 6,
+      closed: 7,
+      past_due: 8
+    }, this.componentTypes = {
+      exam: 1,
+      scorm: 2,
+      page: 3,
+      assignment: 4,
+      session: 5,
+      training: 6,
+      checklist: 7,
+      linkedin_learning: 8,
+      e_signature: 10
+    };
+  }
+}
+function p(r) {
+  return typeof r == "number" && Number.isFinite(r);
+}
+class h {
+  constructor(e = new l()) {
+    this.helper = e;
+  }
+  /**
+   * Determines if the learner can access the current module if the course is sequenced.
+   * it does so by looking at the component to load but also the previous component in the list
+   * as we want to see the status of the previous component should this one be completed or not.
+   *
+   * @param  enrollment -  Enrollment related whose components we are checking
+   * @param  enrollment_component - Current enrollment component
+   * @param  enrollment_components - Array of the enrollment components
+   * @returns learner can access the current module or not
+   */
+  sequenceBlocked(e, s, t) {
+    const i = this.helper;
+    if (e.enable_sequencing != 1 || [i.enrollmentStatuses.completed, i.enrollmentStatuses.passed].includes(e.status_id))
+      return !1;
+    const n = s.component_type_id;
+    return n === i.componentTypes.session || n === i.componentTypes.training || s.is_survey == 1 && s.survey_is_mandatory == 1 && e.status_id == i.enrollmentStatuses.failed ? !1 : this.dontHaveUncompletedModule(t, s, e);
+  }
+  /**
+   * Check have some enrollment component before current one ned to be completed before you can access current one
+   * @param enrollmentComponents - Array of the enrollment components
+   * @param enrollmentComponent -  Current enrollment component
+   * @param enrollment - Enrollment related whose components we are checking
+   * @returns true if no enrollment components need to be completed before current one
+   */
+  dontHaveUncompletedModule(e, s, t) {
+    const i = this.helper;
+    let n = !0;
+    const o = e.findIndex((a) => a.id === s.id);
+    return e.forEach((a) => {
+      const g = e.findIndex((_) => _.id === a.id);
+      p(o) && p(g) && g < o && (!a.override_sequencing && !(a.enrollment_component_status_id == i.enrollmentStatuses.completed || a.enrollment_component_status_id == i.enrollmentStatuses.passed) && !((a.enrollment_component_status_id == i.enrollmentStatuses.pending_review || a.enrollment_component_status_id == i.enrollmentStatuses.in_progress && a.was_rejected) && t.bypass_sequencing_on_assignments == 1) && !(a.enrollment_component_status_id == i.enrollmentStatuses.pending_review && t.bypass_sequencing_on_checklists == 1 && a.component_type_id === i.componentTypes.checklist) && !(a.enrollment_component_status_id >= i.enrollmentStatuses.completed && (p(t.pass_mark) || a.enrollment_exam_status_id && (a.is_knowledge_test == 1 || a.is_survey == 1))) && !(a.enrollment_component_status_id == i.enrollmentStatuses.in_progress && a.was_rejected) && !(a.component_type_id === i.componentTypes.e_signature && t.bypass_sequencing_on_esignatures === 1) && (n = !1), !a.override_sequencing && a.component_type_id === i.componentTypes.checklist && a.enrollment_component_status_id === i.enrollmentStatuses.pending_review && t.bypass_sequencing_on_checklists === 0 && (n = !1));
+    }), n;
+  }
+  moduleReleased(e, s) {
+    const t = new Date(e.release_at).getTime();
+    return !(s && t > Date.now());
+  }
+}
+var c = /* @__PURE__ */ ((r) => (r.PAGE_VIEW = "view", r.PAGE_LOAD = "load", r.CLICK_EVENT = "click", r))(c || {});
+class u {
+  constructor() {
+    this.buffer = [], this.FLUSH_INTERVAL = 5e3, this.isInitialized = !1, this.ROUTER_PAGE_META = {}, this.enabledLogging = !1, this.trackingServiceUrl = "";
+  }
+  static getInstance() {
+    return u.instance || (u.instance = new u()), u.instance;
+  }
+  addPageMeta(e) {
+    this.ROUTER_PAGE_META = { ...this.ROUTER_PAGE_META, ...e };
+  }
+  /**
+   * Initialize InsightService by setting up a periodic timer
+   * to send buffer of events to Tracking backend service. It
+   * also send them when users leave the page.
+   */
+  init({ trackingServiceUrl: e, enabledLogging: s = !1 }) {
+    if (this.isInitialized)
+      throw new Error("InsightsService is already initialized");
+    this.enabledLogging = s, this.trackingServiceUrl = e, setInterval(() => {
+      this.flushBuffer();
+    }, this.FLUSH_INTERVAL), document.addEventListener("visibilitychange", () => {
+      document.visibilityState === "hidden" && this.flushBuffer();
+    }), document.defaultView.addEventListener("pagehide", () => {
+      this.flushBuffer();
+    }), this.isInitialized = !0;
+  }
+  /**
+   * Capture page interaction events
+   * @param event - describe action event details
+   */
+  actionEvent(e) {
+    const t = {
+      origin: {
+        pageelement: e.pageelement,
+        pagegroup: this.currentPageGroup,
+        pagename: this.currentPageName
+      },
+      pageviewId: this.currentPageViewId,
+      action_subtype: e.action_subtype,
+      action_type: e.action_type,
+      parameters: e.parameters,
+      url_path: document.defaultView.location.pathname,
+      unixtimestamp: (/* @__PURE__ */ new Date()).valueOf(),
+      type: c.CLICK_EVENT
+    };
+    this.isTrackEventValid(t) && this.buffer.push(t);
+  }
+  isNavigationEnd(e) {
+    return e.url !== void 0 && e.type === 1;
+  }
+  /**
+   * Capture when page is visited
+   * @param event - describe page view event details
+   */
+  pageViewEvent(e) {
+    this.currentPageViewId = this.getUUID();
+    const s = this.isNavigationEnd(e) ? this.getPageMeta(e) : e;
+    this.currentPageGroup = s == null ? void 0 : s.pagegroup, this.currentPageName = s == null ? void 0 : s.pagename, this.enabledLogging && (this.currentPageGroup || console.warn("WARNING - Missing page group"), this.currentPageName || console.warn("WARNING - Missing page name"));
+    const t = {
+      page: {
+        pagegroup: this.currentPageGroup,
+        pagename: this.currentPageName
+      },
+      url_path: document.defaultView.location.pathname,
+      pageviewId: this.currentPageViewId,
+      unixtimestamp: (/* @__PURE__ */ new Date()).valueOf(),
+      type: c.PAGE_VIEW
+    };
+    this.isTrackEventValid(t) && this.buffer.push(t);
+  }
+  /**
+   * Capture when page content is loaded from backend
+   * @param event - describe page load event details
+   */
+  pageLoadEvent(e) {
+    const s = {
+      page: {
+        pagegroup: this.currentPageGroup,
+        pagename: this.currentPageName
+      },
+      page_contents: e.page_contents,
+      pageviewId: this.currentPageViewId,
+      url_path: document.defaultView.location.pathname,
+      unixtimestamp: (/* @__PURE__ */ new Date()).valueOf(),
+      type: c.PAGE_LOAD
+    };
+    this.isTrackEventValid(s) && this.buffer.push(s);
+  }
+  /** Send all event in buffer to tracking API service */
+  sendEvents() {
+    this.flushBuffer();
+  }
+  flushBuffer() {
+    const e = this.buffer.splice(0);
+    if (e.length > 0) {
+      const s = document.querySelector('[name="csrf-param"]').content, t = document.querySelector('[name="csrf-token"]').content, i = `${(/* @__PURE__ */ new Date()).valueOf()}`, n = new FormData();
+      n.append("events", JSON.stringify(e)), n.append("local_timestamp", i), n.append(s, t);
+      const o = this.trackingServiceUrl;
+      this.enabledLogging && this.logEvents(e, i), navigator.sendBeacon ? navigator.sendBeacon(o, n) : fetch(o, {
+        method: "post",
+        keepalive: !0,
+        body: n
+      });
+    }
+  }
+  logEvents(e, s) {
+    console.groupCollapsed(`Tracking events (${s}})`), console.table(
+      e.map((t) => ({
+        type: t.type,
+        pagegroup: "page" in t ? t.page.pagegroup : t.origin.pagegroup,
+        pagename: "page" in t ? t.page.pagename : t.origin.pagename,
+        pageelement: "origin" in t && t.origin.pagename,
+        pageviewId: t.pageviewId,
+        url_path: t.url_path,
+        unixtimestamp: t.unixtimestamp,
+        raw: t
+      }))
+    ), console.groupEnd();
+  }
+  getUUID() {
+    return crypto.randomUUID().replace(/-/g, "");
+  }
+  getPageMeta(e) {
+    const s = Object.keys(this.ROUTER_PAGE_META).find((t) => new RegExp(t).test(e.url));
+    return this.ROUTER_PAGE_META[`${s}`];
+  }
+  isTrackEventValid(e) {
+    var s, t, i, n, o;
+    return "page" in e ? ((t = (s = e.page) == null ? void 0 : s.pagegroup) == null ? void 0 : t.length) > 0 && ((n = (i = e.page) == null ? void 0 : i.pagename) == null ? void 0 : n.length) > 0 : "origin" in e ? e.origin.pagegroup.length > 0 && ((o = e.origin.pagename) == null ? void 0 : o.length) > 0 : !1;
+  }
+}
+const f = {
+  mode: "production",
+  LupHelper: l,
+  InsightsService: u,
+  EnrollmentHelper: h
+}, m = "CrossFrameworkLib" in window;
+var d;
+const w = ((d = window == null ? void 0 : window.CrossFrameworkLib) == null ? void 0 : d.mode) === "development";
+(!m || !w) && (window.CrossFrameworkLib = f);
+export {
+  f as CrossFrameworkLib
+};
